@@ -1,0 +1,200 @@
+---
+title: "MA678 Final Project"
+author: "Xiaozhou Lu"
+date: "2020/12/1"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(patchwork)
+library(cowplot)
+library(lme4)
+library(rstanarm)
+library(bayesplot)
+```
+
+## Abstract
+
+This data set, Boston housing prices data, contains information about housing prices in Boston Area with more than 500 observations and 14 variables describing information about geo-location and environment etc. We have fit a regression using multilevel model to predict the housing prices using variables contained and try to see which variables have a greater influence on the housing price. 
+
+```{r echo=FALSE}
+data<- read.csv("boston_house_prices.csv", header=T)
+```
+
+# Introduction
+
+Boston is the capital city of the Commonwealth of Massachusett with approximately 700000 population, while it is also the one of the main centers of historical culture, education, economy and technology. The real estate market is reported to be hotter and hotter in recent years, so it is interesting and valuable to see what kinds of factors will have an impact on the price of real estate. In this research, we will take factors, such as environment, neighborhood, traffic and tax policy, into consideration. The explanation of these variables can be seen as follows.
+
+This data set and definition of variables are obtained from: https://www.kaggle.com/prasadperera/the-boston-housing-dataset. 
+
+CRIM - per capita crime rate by town
+ZN - proportion of residential land zoned for lots over 25,000 sq.ft.
+INDUS - proportion of non-retail business acres per town.
+CHAS - Charles River dummy variable (1 if tract bounds river; 0 otherwise)
+NOX - nitric oxides concentration (parts per 10 million)
+RM - average number of rooms per dwelling
+AGE - proportion of owner-occupied units built prior to 1940
+DIS - weighted distances to five Boston employment centres
+RAD - index of accessibility to radial highways
+TAX - full-value property-tax rate per $10,000
+PTRATIO - pupil-teacher ratio by town
+B - 1000(Bk - 0.63)^2 where Bk is the proportion of blacks by town
+LSTAT - number of percentd lower status of the population
+MEDV - Median value of owner-occupied homes in $1000's
+
+# Method
+
+## First Impression on This Data
+
+Before setting our method and model, we would first have a brief understanding of the data set and the relationship of each independent variable with the dependent variable.
+
+```{r pressure, echo=FALSE}
+a<- ggplot(data=data, mapping=aes(x=CRIM, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+b<- ggplot(data=data, mapping=aes(x=ZN, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+c<- ggplot(data=data, mapping=aes(x=INDUS, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+d<- ggplot(data=data, mapping=aes(x=CHAS, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+e<- ggplot(data=data, mapping=aes(x=NOX, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+f<- ggplot(data=data, mapping=aes(x=RM, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+g<- ggplot(data=data, mapping=aes(x=AGE, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+h<- ggplot(data=data, mapping=aes(x=DIS, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+i<- ggplot(data=data, mapping=aes(x=RAD, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+j<- ggplot(data=data, mapping=aes(x=TAX, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+k<- ggplot(data=data, mapping=aes(x=PTRATIO, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+l<- ggplot(data=data, mapping=aes(x=B, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+m<- ggplot(data=data, mapping=aes(x=LSTAT, y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+plot_grid(a,b,c,d,e,f,g,h,i, 
+          ncol = 3, nrow = 3)
+plot_grid(j,k,l,m,
+          ncol=2, nrow=2)
+```
+
+## Method to Build The Model
+
+These graphs show that we have two index variables CHAS (2 levels) and RAD (9 levels), which stands for if the house is nearby Charles River and index of accessibility to radial highways. So we combine these two factors together to form 18 levels. So we will try to fit a multilevel model for this data. Besides, there are 2 variables, CRIM (crime rates in the neighborhood) and B (black people proportion) distributed densely on one side and sparsely on the other, so we need logarithm transformation before building model, where 
+$$ B^{'}=log(-B+400) $$
+$$ CRIM^{'}=log(CRIM)$$
+```{r echo=FALSE}
+n<- ggplot(data=data, mapping=aes(x=log(CRIM), y=MEDV))+  
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+o<- ggplot(data=data, mapping=aes(x=log(-B+400), y=MEDV))+
+  geom_point()+
+  geom_smooth(method=lm, formula=y~x)
+(n|o)
+```
+And since the number of independent variables are not small, we have also conducted multi-colinearity analysis is needed. The result of kappa value is 55.66, which is less than 100, so we consider the multi-colinearity between variables is not very strong.
+```{r include=FALSE}
+colinear<- data[, c(-4,-9,-14)]
+colinear$CRIM<- log(colinear$CRIM)
+colinear$B<- log(-colinear$B+400)
+kappa(cor(colinear), exact=T)
+```
+
+Above all, we decide to fit a multilevel linear model for this data with 16 levels, while there is actually only 15 levels, since observations with index 1 for CHAS and index 1 for RAD do not exist in our data set.
+
+# Result
+
+The result of multilevel models are shown as follows:
+
+```{r echo=FALSE}
+data2<- data
+data2$CRIM<- log(data2$CRIM)
+data2$B<- log(-data2$B+400)
+data2$CHASRAD<- data2$RAD-data2$CHAS*8+8
+data3<- subset(data2, data2$MEDV<42&data2$MEDV>23.8)
+data4<- subset(data2, data2$MEDV<23.2&data2$MEDV>21)
+data5<- subset(data2, data2$MEDV<20.5)
+data5<- rbind(data3,data4,data5)
+fitmodel<- lmer(MEDV~CRIM+ZN+INDUS+NOX+RM+AGE+DIS+TAX+PTRATIO+B+LSTAT+(1|CHASRAD),data=data5)
+coef(fitmodel)
+```
+
+The output shows the different intercepts in each of the 15 levels. The level index stands for: $$ CHASRAD=RAD-8*CHAS+8 $$, so that we get to separate the combined levels apart. Here we take houses with 0 for CHAS (not nearby Charles River) and 8 for RAD (so that the level index is 32) to interpret the coefficients:   
+Intercept: The fixed intercept plus random intercept for level 32 is 41.15.   
+CRIM: if crime rate increases 1%, the median value of homes in $1000's will decrease log(1+CRIM/CRIM)*0.17, where CRIM is the crime rate before   
+B: if B increases 1, the median value of homes in $1000's will decrease log(-B+400/-B+399), where B is the value before and B=1000(Bk - 0.63)^2, Bk is the proportion of blacks by town.   
+RM: if the average number of rooms per dwelling increase 1, then the median value of homes in $1000's will increase 2.21.   
+Coefficients for other variables can be interpreted the same way as RM.
+
+# Discussion
+
+All these coefficients looks reasonable and are easy to interpret, while only the B variable is a bit difficult to interpret, since it is transformed twice in its definition and our pre-processing. The coefficients for CRIM and AGE is not very significant, because the confidence interval crosses 0, while most of other coefficients are significant. And if the coefficients are positive or negative basically fits our understanding to the reality.
+
+When we were building the model, we included all the data in multilevel model. But when checking the model there were some problems happened. The residual plot was good and Cross-Validation is good. However, the posterior predictive checking, which is attached in the Appendix, didn't show a very good result. The image before 0-20 of y value is ideal, but most of replicated y value did not capture the y value after 20. From the histogram of y value, we can briefly see a distribution of y values in the data set. 
+```{r echo=FALSE}
+hist(data$MEDV, breaks=50)
+```
+It is assumed that the sharp rise in 50 influence the trends of replicated y values, so we need to adjust our model, and the decision is to set subsections of y values into two parts. The data set are separated into two parts as well, which are the part containing y values from 1 to 42, and the other part containing y values bigger than 42. We first build a logistic model, or a categorical one if we decide to set more than two subsections, to see which one does an observation is more likely to belong to. Then build multilevel model for each subsections. However, since the observations we have after 42 is too small, and most of them are distributed near value 50, so we only build the model for 0-42 section, as it is shown in this report. If we have more observations and a more complete distribution in 42+ section then we can build a model for it to make the whole prediction more accurate.
+
+\newpage
+
+# Appendix
+
+```{r}
+head(data)
+```
+
+First attempt to build model without partition: 
+```{r}
+# Fit the model
+fit<- stan_lmer(MEDV~CRIM+ZN+NOX+RM+AGE+DIS+TAX+PTRATIO+B+LSTAT+(1|CHASRAD), data=data2, refresh=0)
+# Posterior predictive check
+medv_rep <- posterior_predict(fit)
+ppc_dens_overlay(data2$MEDV, medv_rep) + scale_y_continuous(breaks=NULL)
+```
+
+The result shows our model is not good enough, so we fit another model using data 
+which contains y from 0 to 42
+
+```{r}
+fit2<- stan_lmer(MEDV~CRIM+ZN+NOX+RM+AGE+DIS+TAX+PTRATIO+B+LSTAT+(1|CHASRAD), data=data5, refresh=0)
+medv_rep2 <- posterior_predict(fit2)
+ppc_dens_overlay(data5$MEDV, medv_rep2) + scale_y_continuous(breaks=NULL)
+```
+
+This result seems much better, although multilevel linear model we use cannot restrict the value to be positive, so there are replicated y values smaller than 0. If this problem can be solved, the blue line can better surrounds the dark line on the peak. As for the model for y values bigger than 42, we need a much larger sample size to build an accurate model. And residual plot and cross validation are shown as follows:  
+
+```{r}
+# Residual plot
+plot(fitted(fit2),resid(fit2),pch=20, main="Model Residuals")
+# LOO cross validation
+loo(fit2)
+```
+
+The residuals doesn't have a strange pattern, which means we are likely to have equal variance in errors. And the results in cross validation is acceptable. And see the confidence interval of these parameters.
+```{r}
+# Confidence interval
+sims<- as.matrix(fit2)
+mcmc_dens(sims)
+posterior_interval(fit2)
+mcmc_intervals(sims)
+```
+The explanation for confidence interval is in the Discussion part.
